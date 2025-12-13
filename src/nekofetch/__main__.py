@@ -43,7 +43,7 @@ def fetch_random_image() -> Tuple[bytes, str]:
 def display_with_kitty(image_bytes: bytes) -> None:
     # kitty icat can read from stdin; avoids temp files.
     result = subprocess.run(
-        ["kitty", "+kitten", "icat", "--stdin", "yes"],
+        ["kitty", "+kitten", "icat", "--align", "left", "--stdin", "yes"],
         input=image_bytes,
         check=False,
     )
