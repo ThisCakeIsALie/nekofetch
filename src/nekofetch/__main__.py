@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ from typing import Tuple
 
 import requests
 
-API_RANDOM = "https://nekos.moe/api/v1/random/image?nsfw=false&count=1"
+API_RANDOM = "https://nekos.moe/api/v1/random/image"
 IMAGE_URL = "https://nekos.moe/image/{image_id}"
 
 
@@ -25,8 +26,8 @@ def require_kitty() -> None:
         raise SystemExit(1)
 
 
-def fetch_random_image() -> Tuple[bytes, str]:
-    resp = requests.get(API_RANDOM, timeout=10)
+def fetch_random_image(nsfw: bool) -> Tuple[bytes, str]:
+    resp = requests.get(API_RANDOM, params={"nsfw": str(nsfw).lower(), "count": 1}, timeout=10)
     resp.raise_for_status()
 
     try:
@@ -51,10 +52,41 @@ def display_with_kitty(image_bytes: bytes) -> None:
         raise RuntimeError(f"kitty icat failed with exit code {result.returncode}")
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Fetch a random catgirl and display it with Kitty.")
+    try:
+        boolean_action = argparse.BooleanOptionalAction  # type: ignore[attr-defined]
+    except AttributeError:
+        parser.add_argument(
+            "--nsfw",
+            dest="nsfw",
+            action="store_true",
+            default=False,
+            help="Allow NSFW catgirls instead of the default SFW images.",
+        )
+        parser.add_argument(
+            "--no-nsfw",
+            dest="nsfw",
+            action="store_false",
+            help="Force SFW catgirls (default).",
+        )
+    else:
+        parser.add_argument(
+            "--nsfw",
+            action=boolean_action,
+            default=False,
+            help="Allow NSFW catgirls instead of the default SFW images.",
+        )
+    return parser
+
+
 def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
     try:
         require_kitty()
-        image_bytes, image_id = fetch_random_image()
+        image_bytes, image_id = fetch_random_image(args.nsfw)
         display_with_kitty(image_bytes)
     except KeyboardInterrupt:
         sys.stderr.write("\nCancelled.\n")
