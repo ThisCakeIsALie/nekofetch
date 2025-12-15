@@ -1,28 +1,50 @@
 from __future__ import annotations
 
 import argparse
+import base64
+from io import BytesIO
 import os
-import shutil
-import subprocess
 import sys
 from typing import Tuple
 
+from PIL import Image
 import requests
 
 API_RANDOM = "https://nekos.moe/api/v1/random/image"
 IMAGE_URL = "https://nekos.moe/image/{image_id}"
 
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
-def require_kitty() -> None:
-    """Fail early if we're not in a Kitty terminal or the binary is missing."""
-    if not shutil.which("kitty"):
-        sys.stderr.write("kitty executable not found in PATH; install Kitty to view images.\n")
+SUPPORTED_KITTY_TERMINALS = ("kitty", "wezterm", "ghostty", "contour")
+
+
+def supports_kitty_graphics() -> bool:
+    """Heuristically detect terminals that speak the Kitty graphics protocol."""
+    term = os.environ.get("TERM", "").lower()
+    term_program = os.environ.get("TERM_PROGRAM", "").lower()
+    if any(marker in term for marker in SUPPORTED_KITTY_TERMINALS):
+        return True
+    if any(marker in term_program for marker in SUPPORTED_KITTY_TERMINALS):
+        return True
+    if os.environ.get("KITTY_WINDOW_ID") or os.environ.get("WEZTERM_PANE"):
+        return True
+    return False
+
+
+def require_kitty_protocol() -> None:
+    """Fail early if stdout is not a TTY or the terminal lacks graphics support."""
+    if not sys.stdout.isatty():
+        sys.stderr.write("nekofetch needs a TTY to render inline images.\n")
         raise SystemExit(1)
 
-    term = os.environ.get("TERM", "")
-    kitty_id = os.environ.get("KITTY_WINDOW_ID")
-    if "kitty" not in term and not kitty_id:
-        sys.stderr.write("This script requires a Kitty terminal for inline graphics.\n")
+    if os.environ.get("NEKOFETCH_ASSUME_KITTY_PROTOCOL"):
+        return
+
+    if not supports_kitty_graphics():
+        sys.stderr.write(
+            "Terminal does not appear to support the Kitty graphics protocol. "
+            "Try Kitty/WezTerm or set NEKOFETCH_ASSUME_KITTY_PROTOCOL=1 to force.\n"
+        )
         raise SystemExit(1)
 
 
@@ -41,19 +63,52 @@ def fetch_random_image(nsfw: bool) -> Tuple[bytes, str]:
     return img_resp.content, image_id
 
 
-def display_with_kitty(image_bytes: bytes) -> None:
-    # kitty icat can read from stdin; avoids temp files.
-    result = subprocess.run(
-        ["kitty", "+kitten", "icat", "--align", "left", "--stdin", "yes"],
-        input=image_bytes,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"kitty icat failed with exit code {result.returncode}")
+def display_with_kitty_protocol(image_bytes: bytes) -> None:
+    """
+    Send image bytes using Kitty's inline graphics protocol.
+
+    The payload is base64 encoded and chunked to keep within the protocol limits.
+    """
+    encoded = base64.b64encode(image_bytes)
+    chunk_size = 4096
+    buf_write = sys.stdout.buffer.write
+
+    for idx in range(0, len(encoded), chunk_size):
+        chunk = encoded[idx : idx + chunk_size]
+        more = idx + chunk_size < len(encoded)
+        if idx == 0:
+            header = f"a=T,f=100,m={int(more)}".encode("ascii")
+        else:
+            header = f"m={int(more)}".encode("ascii")
+
+        buf_write(b"\x1b_G")
+        buf_write(header)
+        buf_write(b";")
+        buf_write(chunk)
+        buf_write(b"\x1b\\")
+
+    buf_write(b"\n")
+    sys.stdout.flush()
+
+
+def ensure_png(image_bytes: bytes) -> bytes:
+    """The Kitty protocol expects PNG data when f=100; convert if needed."""
+    if image_bytes.startswith(PNG_SIGNATURE):
+        return image_bytes
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception as exc:
+        raise RuntimeError("Failed to decode image bytes for Kitty rendering") from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Fetch a random catgirl and display it with Kitty.")
+    parser = argparse.ArgumentParser(
+        description="Fetch a random catgirl and display it via the Kitty graphics protocol."
+    )
     try:
         boolean_action = argparse.BooleanOptionalAction  # type: ignore[attr-defined]
     except AttributeError:
@@ -85,9 +140,10 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        require_kitty()
-        image_bytes, image_id = fetch_random_image(args.nsfw)
-        display_with_kitty(image_bytes)
+        require_kitty_protocol()
+        image_bytes, _image_id = fetch_random_image(args.nsfw)
+        png_bytes = ensure_png(image_bytes)
+        display_with_kitty_protocol(png_bytes)
     except KeyboardInterrupt:
         sys.stderr.write("\nCancelled.\n")
         raise SystemExit(1)
