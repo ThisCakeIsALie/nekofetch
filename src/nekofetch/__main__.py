@@ -4,6 +4,8 @@ import argparse
 import base64
 from io import BytesIO
 import os
+import shutil
+import subprocess
 import sys
 from typing import Tuple
 
@@ -16,6 +18,7 @@ IMAGE_URL = "https://nekos.moe/image/{image_id}"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 SUPPORTED_KITTY_TERMINALS = ("kitty", "wezterm", "ghostty", "contour")
+SIXEL_TOOL = "img2sixel"
 
 
 def supports_kitty_graphics() -> bool:
@@ -31,21 +34,26 @@ def supports_kitty_graphics() -> bool:
     return False
 
 
-def require_kitty_protocol() -> None:
-    """Fail early if stdout is not a TTY or the terminal lacks graphics support."""
+def choose_graphics_protocol() -> str:
+    """Pick the best available graphics protocol for the current terminal."""
     if not sys.stdout.isatty():
         sys.stderr.write("nekofetch needs a TTY to render inline images.\n")
         raise SystemExit(1)
 
     if os.environ.get("NEKOFETCH_ASSUME_KITTY_PROTOCOL"):
-        return
+        return "kitty"
 
     if not supports_kitty_graphics():
-        sys.stderr.write(
-            "Terminal does not appear to support the Kitty graphics protocol. "
-            "Try Kitty/WezTerm or set NEKOFETCH_ASSUME_KITTY_PROTOCOL=1 to force.\n"
-        )
-        raise SystemExit(1)
+        if not shutil.which(SIXEL_TOOL):
+            sys.stderr.write(
+                "Terminal does not appear to support the Kitty graphics protocol and "
+                f"{SIXEL_TOOL} is unavailable for sixel output. "
+                "Install libsixel (img2sixel) or use Kitty/WezTerm.\n"
+            )
+            raise SystemExit(1)
+        return "sixel"
+
+    return "kitty"
 
 
 def fetch_random_image(nsfw: bool) -> Tuple[bytes, str]:
@@ -91,6 +99,21 @@ def display_with_kitty_protocol(image_bytes: bytes) -> None:
     sys.stdout.flush()
 
 
+def display_with_sixel(image_bytes: bytes) -> None:
+    try:
+        subprocess.run(
+            [SIXEL_TOOL],
+            input=image_bytes,
+            stdout=sys.stdout.buffer,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(f"{SIXEL_TOOL} is required for sixel output") from None
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"{SIXEL_TOOL} failed to render the image") from exc
+    sys.stdout.flush()
+
+
 def ensure_png(image_bytes: bytes) -> bytes:
     """The Kitty protocol expects PNG data when f=100; convert if needed."""
     if image_bytes.startswith(PNG_SIGNATURE):
@@ -107,7 +130,7 @@ def ensure_png(image_bytes: bytes) -> bytes:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Fetch a random catgirl and display it via the Kitty graphics protocol."
+        description="Fetch a random catgirl and display it via Kitty or sixel graphics."
     )
     try:
         boolean_action = argparse.BooleanOptionalAction  # type: ignore[attr-defined]
@@ -140,10 +163,13 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        require_kitty_protocol()
+        protocol = choose_graphics_protocol()
         image_bytes, _image_id = fetch_random_image(args.nsfw)
         png_bytes = ensure_png(image_bytes)
-        display_with_kitty_protocol(png_bytes)
+        if protocol == "kitty":
+            display_with_kitty_protocol(png_bytes)
+        else:
+            display_with_sixel(png_bytes)
     except KeyboardInterrupt:
         sys.stderr.write("\nCancelled.\n")
         raise SystemExit(1)
