@@ -51,13 +51,6 @@ def choose_graphics_protocol(requested: str = "auto") -> str:
     if os.environ.get("NEKOFETCH_ASSUME_KITTY_PROTOCOL") or supports_kitty_graphics():
         return "kitty"
 
-    if os.environ.get("NEKOFETCH_ASSUME_SIXEL_PROTOCOL"):
-        if not shutil.which(SIXEL_TOOL):
-            raise RuntimeError(
-                f"NEKOFETCH_ASSUME_SIXEL_PROTOCOL is set but {SIXEL_TOOL} is unavailable"
-            )
-        return "sixel"
-
     # For an unknown terminal, do not blindly emit sixel merely because an
     # encoder happens to be installed. Chafa's symbols mode and the native ANSI
     # renderer only use ordinary text/color escape sequences, so they are safe
