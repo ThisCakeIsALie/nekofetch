@@ -28,5 +28,3 @@ nekofetch --protocol ansi
 ```
 
 Sixel output requires `img2sixel` (libsixel), and Chafa output requires `chafa`. Explicitly requesting an unavailable renderer exits with an error. The ANSI fallback has no extra dependency beyond nekofetch itself.
-
-If you're using a Kitty-compatible terminal that isn't auto-detected, set `NEKOFETCH_ASSUME_KITTY_PROTOCOL=1`.

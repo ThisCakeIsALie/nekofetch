@@ -48,7 +48,7 @@ def choose_graphics_protocol(requested: str = "auto") -> str:
             raise RuntimeError(f"{CHAFA_TOOL} is required for chafa output")
         return requested
 
-    if os.environ.get("NEKOFETCH_ASSUME_KITTY_PROTOCOL") or supports_kitty_graphics():
+    if supports_kitty_graphics():
         return "kitty"
 
     # For an unknown terminal, do not blindly emit sixel merely because an
