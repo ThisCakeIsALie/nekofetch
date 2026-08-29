@@ -1,6 +1,6 @@
 # nekofetch
 
-Fetch a random catgirl image from nekos.moe and display it inline using the Kitty graphics protocol (Kitty, WezTerm, Ghostty, etc.) or sixel (via img2sixel).
+Fetch a random catgirl image from nekos.moe and display it inline using the Kitty graphics protocol (Kitty, WezTerm, Ghostty, etc.), sixel, Chafa, or a terminal-safe ANSI/Unicode fallback.
 
 ## Install
 
@@ -16,4 +16,15 @@ nekofetch --nsfw     # allow NSFW catgirls
 nekofetch --no-nsfw  # force SFW (default)
 ```
 
-If the terminal does not support Kitty, nekofetch falls back to sixel output via `img2sixel` (installable with libsixel). If you're using a compatible terminal that isn't auto-detected, set `NEKOFETCH_ASSUME_KITTY_PROTOCOL=1`.
+Rendering defaults to `--protocol auto`. Kitty-compatible terminals use the Kitty graphics protocol. Other terminals use Chafa's symbol renderer when `chafa` is installed, otherwise nekofetch falls back to a built-in true-color Unicode half-block renderer that works in ordinary terminals such as Termius.
+
+You can force a renderer with:
+
+```bash
+nekofetch --protocol kitty
+nekofetch --protocol sixel
+nekofetch --protocol chafa
+nekofetch --protocol ansi
+```
+
+Sixel output requires `img2sixel` (libsixel), and Chafa output requires `chafa`. Explicitly requesting an unavailable renderer exits with an error. The ANSI fallback has no extra dependency beyond nekofetch itself.
